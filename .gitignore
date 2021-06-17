@@ -2,3 +2,5 @@ target
 /packetcrypt-sys/target
 /pool.toml
 /datastore
+/.vscode
+/.DS_Store
