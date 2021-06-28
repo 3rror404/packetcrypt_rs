@@ -98,6 +98,10 @@ fn main() {
         panic!("Could not find libsodium source code");
     }
 
+    if cfg.is_flag_supported("-fno-plt").unwrap() {
+        cfg.use_plt(false);
+    }
+
     cfg.include("packetcrypt/include")
         .include("packetcrypt/src")
         .flag("-Wno-implicit-function-declaration")
@@ -118,7 +122,9 @@ fn main() {
         .file("packetcrypt/src/Work.c")
         .file("packetcrypt/src/UdpGso.c")
         .out_dir(dst.join("lib"))
-        .opt_level(3)
+        .flag_if_supported("-march=native")
+        .flag_if_supported("-mtune=native")
+        .flag("-O2")
         .compile("libpacketcrypt.a");
 
     let src = env::current_dir().unwrap().join("packetcrypt");
