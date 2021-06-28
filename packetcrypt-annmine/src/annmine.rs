@@ -82,6 +82,7 @@ pub struct AnnMineCfg {
     pub pay_to: String,
     pub upload_timeout: usize,
     pub mine_old_anns: i32,
+    pub influx_db_logging: bool,
 }
 
 const UPLOAD_CHANNEL_LEN: usize = 100;
@@ -485,6 +486,31 @@ async fn stats_loop(am: &AnnMine) {
         m.recv_anns_per_second.take().unwrap()
     };
     let mut time_of_last_msg: u64 = 0;
+    //let mut file: Option<std::fs::File>;
+    let mut file = OpenOptions::new()
+                .write(true)
+                .append(true)
+                .create(true)
+                .open("/var/log/packetcrypt_stats.log")
+                .unwrap();
+
+    // if am.cfg.influx_db_logging {
+    //     file = Some(OpenOptions::new()
+    //                 .write(true)
+    //                 .append(true)
+    //                 .create(true)
+    //                 .open("/var/log/packetcrypt_stats.log")
+    //                 .unwrap());
+    //     // if let Some(file) = file.into() {
+    //     //     file = OpenOptions::new()
+    //     //     .write(true)
+    //     //     .append(true)
+    //     //     .create(true)
+    //     //     .open("/var/log/packetcrypt_stats.log")
+    //     //     .unwrap()
+    //     // }
+    // }
+
     loop {
         let raps = if let Some(x) = recv_anns_per_second.recv().await {
             x
@@ -503,12 +529,6 @@ async fn stats_loop(am: &AnnMine) {
             let mut inflight_anns = Vec::new();
             let mut accepted_rejected_over_anns = Vec::new();
             let mut rate = Vec::new();
-
-            let mut file = OpenOptions::new()
-                    .write(true)
-                    .append(true)
-                    .open("/var/log/packetcrypt_stats.log")
-                    .unwrap();
 
             for p in &am.pools {
                 let lost = p.lost_anns.swap(0, Ordering::Relaxed);
@@ -529,23 +549,25 @@ async fn stats_loop(am: &AnnMine) {
                     }) * 100.0) as u32,
                 ));
 
-                if let Err(e) = writeln!(file, "anns,pool=\"{}\" goodrate={},accepted={},rejected={},overflow={},inflight={} {}",
-                    p.pcli.url,
-                    format!(
-                        "{}",
-                        ((if total > 0 {
-                            accepted as f32 / total as f32
-                        } else {
-                            1.0
-                        }) * 100.0) as u32,
-                    ),
-                    accepted,
-                    rejected,
-                    over,
-                    inflight,
-                    now * 1000000
-                ) {
-                    eprintln!("Couldn't write to file: {}", e);
+                if am.cfg.influx_db_logging {
+                    if let Err(e) = writeln!(file, "anns,pool=\"{}\" goodrate={},accepted={},rejected={},overflow={},inflight={} {}",
+                        p.pcli.url,
+                        format!(
+                            "{}",
+                            ((if total > 0 {
+                                accepted as f32 / total as f32
+                            } else {
+                                1.0
+                            }) * 100.0) as u32,
+                        ),
+                        accepted,
+                        rejected,
+                        over,
+                        inflight,
+                        now * 1000000
+                    ) {
+                        warn!("Couldn't write to file: {}", e);
+                    }
                 }
             }
 
@@ -566,12 +588,14 @@ async fn stats_loop(am: &AnnMine) {
                     format!("[{}]", rate.join(", "))
                 );
 
-                if let Err(e) = writeln!(file, "anns estimated_eps={},kbps={} {}",
-                    estimated_eps,
-                    kbps,
-                    now * 1000000
-                ) {
-                    eprintln!("Couldn't write to file: {}", e);
+                if am.cfg.influx_db_logging {
+                    if let Err(e) = writeln!(file, "anns estimated_eps={},kbps={} {}",
+                        estimated_eps,
+                        kbps,
+                        now * 1000000
+                    ) {
+                        warn!("Couldn't write to file: {}", e);
+                    }
                 }
             }
             time_of_last_msg = now;

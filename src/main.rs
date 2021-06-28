@@ -115,6 +115,7 @@ async fn ann_main(
     uploaders: usize,
     upload_timeout: usize,
     mine_old_anns: i32,
+    influx_db_logging: bool,
 ) -> Result<()> {
     warn_if_addr_default(payment_addr);
     let am = annmine::new(annmine::AnnMineCfg {
@@ -125,6 +126,7 @@ async fn ann_main(
         pay_to: String::from(payment_addr),
         upload_timeout,
         mine_old_anns,
+        influx_db_logging,
     })
     .await?;
     annmine::start(&am).await?;
@@ -172,6 +174,19 @@ macro_rules! get_num {
     }};
 }
 
+macro_rules! get_bool {
+    ($m:ident, $s:expr) => {
+        match $s {
+            "true" => true,
+            "false" => false,
+            _ => {
+                println!("Unable to parse argument {} as bool", $s);
+                return Ok(());
+            }
+        }
+    };
+}
+
 async fn async_main(matches: clap::ArgMatches<'_>) -> Result<()> {
     leak_detect().await?;
     exiter().await?;
@@ -184,6 +199,7 @@ async fn async_main(matches: clap::ArgMatches<'_>) -> Result<()> {
         let uploaders = get_usize!(ann, "uploaders");
         let upload_timeout = get_usize!(ann, "uploadtimeout");
         let mine_old_anns = get_num!(ann, "mineold", i32);
+        let influx_db_logging = get_bool!(ann, "influxdblogging");
         ann_main(
             pools,
             threads,
@@ -191,6 +207,7 @@ async fn async_main(matches: clap::ArgMatches<'_>) -> Result<()> {
             uploaders,
             upload_timeout,
             mine_old_anns,
+            influx_db_logging,
         )
         .await?;
     } else if let Some(ah) = matches.subcommand_matches("ah") {
@@ -346,6 +363,12 @@ async fn main() -> Result<()> {
                         .help("The pools to mine in")
                         .required(true)
                         .min_values(1),
+                )
+                .arg(
+                    Arg::with_name("influxdblogging")
+                    .short("i")
+                    .long("influxdblogging")
+                    .default_value("false")
                 ),
         )
         .subcommand(
