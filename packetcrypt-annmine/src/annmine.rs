@@ -13,6 +13,9 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedReceiver};
+// InfludDB Logging
+use std::fs::OpenOptions;
+use std::io::prelude::*;
 
 const RECENT_WORK_BUF: usize = 8;
 const MAX_ANN_BATCH_SIZE: usize = 1024;
@@ -500,6 +503,13 @@ async fn stats_loop(am: &AnnMine) {
             let mut inflight_anns = Vec::new();
             let mut accepted_rejected_over_anns = Vec::new();
             let mut rate = Vec::new();
+
+            let mut file = OpenOptions::new()
+                    .write(true)
+                    .append(true)
+                    .open("/var/log/packetcrypt_stats.log")
+                    .unwrap();
+
             for p in &am.pools {
                 let lost = p.lost_anns.swap(0, Ordering::Relaxed);
                 lost_anns.push(format!("{}", lost));
@@ -518,6 +528,25 @@ async fn stats_loop(am: &AnnMine) {
                         1.0
                     }) * 100.0) as u32,
                 ));
+
+                if let Err(e) = writeln!(file, "anns,pool=\"{}\" goodrate={},accepted={},rejected={},overflow={},inflight={} {}",
+                    p.pcli.url,
+                    format!(
+                        "{}",
+                        ((if total > 0 {
+                            accepted as f32 / total as f32
+                        } else {
+                            1.0
+                        }) * 100.0) as u32,
+                    ),
+                    accepted,
+                    rejected,
+                    over,
+                    inflight,
+                    now * 1000000
+                ) {
+                    eprintln!("Couldn't write to file: {}", e);
+                }
             }
 
             if kbps > 0.0 {
@@ -536,6 +565,14 @@ async fn stats_loop(am: &AnnMine) {
                     ),
                     format!("[{}]", rate.join(", "))
                 );
+
+                if let Err(e) = writeln!(file, "anns estimated_eps={},kbps={} {}",
+                    estimated_eps,
+                    kbps,
+                    now * 1000000
+                ) {
+                    eprintln!("Couldn't write to file: {}", e);
+                }
             }
             time_of_last_msg = now;
         }

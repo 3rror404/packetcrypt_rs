@@ -1,6 +1,53 @@
 # packetcrypt_rs
 PacketCrypt implementation in Rust
 
+## How does this differ from the offical packetcrypt_rs release?
+This version of packetcrypt_rs writes the ann miner statistics to a log in InfluxDB Line Protocol format.
+
+This log can be consumed by Telegraf and fed into InfluxDB.
+
+## What data is written to the logs?
+1. Encryptions (ke/s)
+2. Bandwidth (Mb/s)
+3. Goodrate (per pool)
+4. Anns accept (per pool)
+5. Anns reject (per pool)
+6. Anns overload (per pool)
+
+## How do I implement this?
+Create an empty file in `/var/log` named `packetcrypt_stats.log`.
+
+Add the following to your `telegraf.conf` file
+
+    [[inputs.tail]]
+        files = ["/var/log/packetcrypt_stats.log"]
+        watch_method = "inotify"
+        data_format = "influx"
+
+Restart Telegraf
+
+    sudo systemctl restart telegraf
+
+If you already have packetcrypt_rs installed, remove the directory (you can leave the miner running)
+
+    rm -rf packetcrypt_rs
+
+Clone and build the repository ensuring that you are using the `influxdb_logging` branch
+
+    git clone https://github.com/3rror404/packetcrypt_rs --branch influxdb_logging
+    cd packetcrypt_rs
+    cargo build --release
+
+Start/restart the miner
+
+(Optional)
+Create a cron job to wipe the log at midnight everyday
+
+    00 00 * * * echo -n >/var/log/packetcrypt_stats.log
+
+
+# Original Readme
+
 ## What exists
 PacketCrypt mining is made up of 6 distinct components:
 * Master - provides work and config files to everyone for a given pool
