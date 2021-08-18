@@ -32,9 +32,9 @@ If you already have packetcrypt_rs installed, remove the directory (you can leav
 
     rm -rf packetcrypt_rs
 
-Clone and build the repository ensuring that you are using the `influxdb_logging` branch
+Clone and build the repository
 
-    git clone https://github.com/3rror404/packetcrypt_rs --branch influxdb_logging
+    git clone https://github.com/3rror404/packetcrypt_rs
     cd packetcrypt_rs
     cargo build --release
 
