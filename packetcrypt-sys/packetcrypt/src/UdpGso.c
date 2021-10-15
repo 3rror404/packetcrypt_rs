@@ -147,7 +147,7 @@ int UdpGro_recvmsg(int fd, struct UdpGro_Sockaddr* addrOut, uint8_t* buf, int le
         struct sockaddr_in* in = (struct sockaddr_in*) &in6;
         addrOut->isIpv6 = 0;
         addrOut->port = ntohs(in->sin_port);
-        Buf_OBJCPY_LSRC(addrOut->addr, &in->sin_addr);
+        memcpy(addrOut->addr, &in->sin_addr, sizeof(struct in_addr));
     } else {
         printf("WARNING: unexpected address length %d\n", msg.msg_namelen);
         return -1000;
@@ -171,7 +171,7 @@ int UdpGro_sendmsg(int fd, const struct UdpGro_Sockaddr* addr, const uint8_t* da
     } else {
         struct sockaddr_in* in = (struct sockaddr_in*) &in6;
         in->sin_family = AF_INET;
-        Buf_OBJCPY_LDST(&in->sin_addr, addr->addr);
+        memcpy(&in->sin_addr, addr->addr, sizeof(struct in_addr));
         in->sin_port = htons(addr->port);
         h.msg_name = in;
         h.msg_namelen = sizeof *in;
