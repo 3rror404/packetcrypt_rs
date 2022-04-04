@@ -9,6 +9,7 @@ use packetcrypt_pool::{paymakerclient, poolcfg};
 use packetcrypt_util::{poolclient, util};
 #[cfg(not(target_os = "windows"))]
 use tokio::signal::unix::{signal, SignalKind};
+use serde::{Serialize};
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
@@ -53,6 +54,13 @@ async fn exiter() -> Result<()> {
 #[cfg(target_os = "windows")]
 async fn exiter() -> Result<()> {
     Ok(())
+}
+
+#[derive(Serialize)]
+pub struct SystemInfo {
+    pub threads_total: usize,
+    pub threads_used: usize,
+    pub cpu_name: String
 }
 
 async fn ah_main(config: &str, handler: &str) -> Result<()> {
@@ -115,8 +123,28 @@ async fn ann_main(
     uploaders: usize,
     upload_timeout: usize,
     mine_old_anns: i32,
+    send_system_info: bool,
 ) -> Result<()> {
     warn_if_addr_default(payment_addr);
+    
+    let mut system_info_json = String::from("");
+    if send_system_info {
+        let mut si = SystemInfo {
+            threads_total: num_cpus::get(),
+            threads_used: threads,
+            cpu_name: String::from("")
+        };
+
+        let information = cupid::master();
+        if let Some(information) = information {
+            if information.brand_string() != None {
+                si.cpu_name = information.brand_string().as_ref().unwrap().to_string();
+            }
+        }
+
+        system_info_json = serde_json::to_string(&si).unwrap();
+    }
+    
     let am = annmine::new(annmine::AnnMineCfg {
         pools,
         miner_id: util::rand_u32(),
@@ -125,6 +153,7 @@ async fn ann_main(
         pay_to: String::from(payment_addr),
         upload_timeout,
         mine_old_anns,
+        system_info_json
     })
     .await?;
     annmine::start(&am).await?;
@@ -205,6 +234,7 @@ async fn async_main(matches: clap::ArgMatches<'_>) -> Result<()> {
         let uploaders = get_usize!(ann, "uploaders");
         let upload_timeout = get_usize!(ann, "uploadtimeout");
         let mine_old_anns = get_num!(ann, "mineold", i32);
+        let send_system_info = ann.is_present("sendsysteminfo"); 
         ann_main(
             pools,
             threads,
@@ -212,6 +242,7 @@ async fn async_main(matches: clap::ArgMatches<'_>) -> Result<()> {
             uploaders,
             upload_timeout,
             mine_old_anns,
+            send_system_info,
         )
         .await?;
     } else if let Some(ah) = matches.subcommand_matches("ah") {
@@ -388,6 +419,13 @@ async fn main() -> Result<()> {
                         .help("The pools to mine in")
                         .required(true)
                         .min_values(1),
+                )
+                .arg(
+                    Arg::with_name("sendsysteminfo")
+                        .short("s")
+                        .long("sendsysteminfo")
+                        .help("Send information about the system running packetcrypt to the configured mining pool(s)")
+                        .takes_value(false)
                 ),
         )
         .subcommand(

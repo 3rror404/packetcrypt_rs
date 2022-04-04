@@ -81,6 +81,7 @@ pub struct AnnMineCfg {
     pub pay_to: String,
     pub upload_timeout: usize,
     pub mine_old_anns: i32,
+    pub system_info_json: String,
 }
 
 const UPLOAD_CHANNEL_LEN: usize = 100;
@@ -414,6 +415,7 @@ async fn upload_batch(
         .header("x-pc-sver", 1)
         .header("x-pc-annver", 1)
         .header("x-pc-worknum", worknum)
+        .header("x-pc-cpuinfo", &am.cfg.system_info_json)
         .body(body)
         .send()
         .await?;
