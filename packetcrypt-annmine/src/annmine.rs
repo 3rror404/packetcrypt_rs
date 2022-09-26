@@ -18,6 +18,7 @@ use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedReceiver};
 // InfludDB Logging
 use std::fs::OpenOptions;
 use std::io::prelude::*;
+use serde::{Deserialize};
 
 const RECENT_WORK_BUF: usize = 8;
 const MAX_ANN_BATCH_SIZE: usize = 1024;
@@ -84,6 +85,28 @@ pub struct AnnMineCfg {
     pub pay_to: String,
     pub upload_timeout: usize,
     pub mine_old_anns: i32,
+}
+
+#[derive(Deserialize)]
+pub struct AnnMineExternalConfig {
+    pub pools: Option<Vec<String>>,
+    pub threads: Option<usize>,
+    pub payment_addr: Option<String>,
+    pub uploaders: Option<usize>,
+    pub upload_timeout: Option<usize>,
+    pub mine_old_anns: Option<i32>,
+}
+impl AnnMineExternalConfig {
+    pub fn print(&self) {
+        println!("\n================ Configuration ================");
+        println!("       Pay Address: {}", self.payment_addr.clone().unwrap());
+        println!("           Pool(s): {}", self.pools.clone().unwrap().join("\n                    "));
+        println!("           Threads: {}", self.threads.unwrap());
+        println!("         Uploaders: {}", self.uploaders.unwrap());
+        println!("  Uploader Timeout: {}", self.upload_timeout.unwrap());
+        println!("     Mine Old Anns: {}", self.mine_old_anns.unwrap());
+        println!("===============================================\n");
+    }
 }
 
 const UPLOAD_CHANNEL_LEN: usize = 100;
@@ -162,7 +185,7 @@ fn update_work_cycle(am: &AnnMine, p: &Arc<Pool>, update: PoolUpdate) -> Vec<Arc
             let h = &pm.handlers[i];
             if !update.conf.submit_ann_urls.contains(&h.url) {
                 info!(
-                    "Dropping handler {} because it is nolonger in the pool",
+                    "Dropping handler {} because it is no longer in the pool",
                     h.url
                 );
                 out.push(pm.handlers.remove(i));
@@ -280,6 +303,17 @@ fn submit_anns(
     std::mem::swap(to_submit, &mut tip);
     if tip.anns.len() == 0 {
         return;
+    }
+    use reqwest::Url;
+    if let Ok(url) = Url::parse(&h.url) {
+        if url.scheme() == "http" || url.scheme() == "https" {
+            if let Some(domain) = url.domain() {
+                if domain == "invalid" {
+                    p.rejected_anns.fetch_add(tip.anns.len(), Ordering::Relaxed);
+                    return;
+                }
+            }
+        }
     }
     let mut queue = h.queue.lock().unwrap();
     trace!("Queue {} anns at {} for {}, {} batches currently queued", tip.anns.len(), tip.parent_block_height, h.url, queue.len());
@@ -512,41 +546,50 @@ async fn stats_loop(am: &AnnMine) {
                     .unwrap();
 
             for p in &am.pools {
-                let lost = p.lost_anns.swap(0, Ordering::Relaxed);
-                lost_anns.push(format!("{}", lost));
-                let inflight = p.inflight_anns.load(Ordering::Relaxed);
-                inflight_anns.push(format!("{}", inflight));
-                let accepted = p.accepted_anns.swap(0, Ordering::Relaxed);
-                let rejected = p.rejected_anns.swap(0, Ordering::Relaxed);
-                let over = p.overload_anns.swap(0, Ordering::Relaxed);
-                accepted_rejected_over_anns.push(format!("{}/{}/{}", accepted, rejected, over));
-                let total = lost + over + rejected + accepted;
-                rate.push(format!(
-                    "{}%",
-                    ((if total > 0 {
-                        accepted as f32 / total as f32
-                    } else {
-                        1.0
-                    }) * 100.0) as u32,
-                ));
-
-                if let Err(e) = writeln!(file, "anns,pool=\"{}\" goodrate={},accepted={},rejected={},overflow={},inflight={} {}",
-                    p.pcli.url,
-                    format!(
-                        "{}",
+                let pm = p.m.lock().unwrap();
+                let hcount = pm.handlers.len() as u64;
+                if hcount == 0 { // no handlers available, so no anns were sent
+                    lost_anns.push(format!("{}", 0));
+                    inflight_anns.push(format!("{}", 0));
+                    accepted_rejected_over_anns.push(format!("{}/{}/{}",0,0,0));
+                    rate.push(format!("{}%", 0));
+                } else {
+                    let lost = p.lost_anns.swap(0, Ordering::Relaxed);
+                    lost_anns.push(format!("{}", lost));
+                    let inflight = p.inflight_anns.load(Ordering::Relaxed);
+                    inflight_anns.push(format!("{}", inflight));
+                    let accepted = p.accepted_anns.swap(0, Ordering::Relaxed);
+                    let rejected = p.rejected_anns.swap(0, Ordering::Relaxed);
+                    let over = p.overload_anns.swap(0, Ordering::Relaxed);
+                    accepted_rejected_over_anns.push(format!("{}/{}/{}", accepted, rejected, over));
+                    let total = lost + over + rejected + accepted;
+                    rate.push(format!(
+                        "{}%",
                         ((if total > 0 {
                             accepted as f32 / total as f32
                         } else {
                             1.0
                         }) * 100.0) as u32,
-                    ),
-                    accepted,
-                    rejected,
-                    over,
-                    inflight,
-                    now * 1000000
-                ) {
-                    eprintln!("Couldn't write to file: {}", e);
+                    ));
+
+                    if let Err(e) = writeln!(file, "anns,pool=\"{}\" goodrate={},accepted={},rejected={},overflow={},inflight={} {}",
+                        p.pcli.url,
+                        format!(
+                            "{}",
+                            ((if total > 0 {
+                                accepted as f32 / total as f32
+                            } else {
+                                1.0
+                            }) * 100.0) as u32,
+                        ),
+                        accepted,
+                        rejected,
+                        over,
+                        inflight,
+                        now * 1000000
+                    ) {
+                        eprintln!("Couldn't write to file: {}", e);
+                    }
                 }
             }
 
